@@ -108,6 +108,10 @@ jobs:
           grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
           [ -s DEVICE_NAME ] && echo "::set-env name=DEVICE_NAME::_$(cat DEVICE_NAME)"
           echo "::set-env name=FILE_DATE::_$(date +"%Y%m%d%H%M")"
+          echo "::set-output name=status::success"
+          echo "::set-env name=date::$(date "+%Y-%m-%d %H.%M")"
+          echo "::set-env name=date1::$(date +'%Y年%m月%d号-%H点%M分')"
+          echo "::set-env name=date2::$(date +'%Y%m%d-%H%M')"
       - name: Check space usage
         if: (!cancelled())
         run: df -hT
@@ -140,15 +144,36 @@ jobs:
         run: |
           curl -fsSL git.io/file-transfer | sh
           ./transfer cow --block 2621440 -s --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
-          echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
+          echo "::set-env name=COWTRANSFER_URL::$(cat cowtransfer.log | grep https | cut -f3 -d" ")" 
       - name: Upload firmware to WeTransfer
         if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
         continue-on-error: true
         run: |
           curl -fsSL git.io/file-transfer | sh
           ./transfer wet -s --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
-          echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
+          echo "::set-env name=WETRANSFER_URL::$(cat wetransfer.log | grep https | cut -f3 -d" ")"    
+    
+      - name: 自动发布固件
+        uses: softprops/action-gh-release@v1
+        if: steps.organizer.outputs.status == 'success'  && !cancelled()
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
+        with:
+          name: ${{ env.date1 }} 固件
+          tag_name: ${{ env.date2 }}
+          body: |
+              🎉 [ ${{matrix.target}} ]固件下载 ✨
+            
+              💐 奶牛快传(国内高速🚀下载)： ${{ env.COWTRANSFER_URL }}
+            
+              ⛄ WeTransfer(国外高速🚀下载)： ${{ env.WETRANSFER_URL }}  
+                                                
+              🎉 [ ${{matrix.target}} ]固件下载 ✨
+          files: ${{ env.FIRMWARE }}/*
+      
       - name: Download and Upload
+        continue-on-error: true
         run: |
           pip install -r requirements.txt
           python upload.py
